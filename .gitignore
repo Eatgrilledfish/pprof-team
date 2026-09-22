@@ -1,0 +1,2 @@
+# 运行时分析产物（每次分析会话生成的 profile 与报告）
+pprof-reports/
