@@ -28,9 +28,17 @@ pprof-team/
 ├── templates/
 │   └── report-template.md         # report.md 结构模板（05 必须遵循）
 └── install.sh                     # 一键导入目标项目：./install.sh /path/to/multica
+├── multica/                       # Multica 平台部署包：7 个 skill + 一键建队脚本（见 multica/README.md）
 ```
 
-## 导入目标项目（如 multica）
+## 两种使用形态
+
+本团队可在两种环境里使用，按需选择：
+
+1. **本地 / 任意 AI 编码助手**：把 `agents/0X-*.md` 作为角色 prompt 按序交给 agent 执行，配合 `scripts/` 三个脚本。适合在 Kimi Code、Claude Code、Codex 等工具里直接用。
+2. **Multica 平台小队**：`multica/` 目录是 Multica 部署包——6 个角色转换为 6 个可导入的 skill（+1 个共享工具包 skill），`multica/setup-multica.sh` 一键完成 skill 导入、智能体创建与小队组建。Multica 没有"小队 JSON 导入"（便携小队包仍是[待实现需求](https://github.com/multica-ai/multica/issues/2707)），skill 才是官方支持的导入单元；`pprof-team.json` 是本团队自描述的清单，不是 Multica 导入格式。详见 `multica/README.md`。
+
+## 导入目标项目（被分析的 Go 服务）
 
 在本仓库根目录执行：
 
