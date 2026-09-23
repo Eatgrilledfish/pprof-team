@@ -24,9 +24,22 @@ pprof-team/
 │   ├── collect_profiles.sh        # collect_profiles.sh <baseline|current>
 │   ├── diff_profiles.sh           # diff_profiles.sh [SESSION_DIR]
 │   └── bench_verify.sh            # 双轴验收脚本（06 引用；文件缺失时用 benchstat 等价命令，见"快速上手"第 6 步）
-└── templates/
-    └── report-template.md         # report.md 结构模板（05 必须遵循）
+├── templates/
+│   └── report-template.md         # report.md 结构模板（05 必须遵循）
+└── install.sh                     # 一键导入目标项目：./install.sh /path/to/multica
 ```
+
+## 导入目标项目（如 multica）
+
+在本仓库根目录执行：
+
+```bash
+./install.sh /path/to/multica
+```
+
+脚本会把团队复制到 `<目标项目>/pprof-team/`，并自动完成三件事：检查目标项目源码是否已暴露 `net/http/pprof`（未暴露则打印需要添加的代码片段）、向目标项目 `.gitignore` 追加 `pprof-reports/`（分析产物不入库）、打印导入后的环境变量与采集命令。脚本幂等，可重复执行。
+
+也可以不用脚本，手动 `git clone` 本仓库到目标项目根目录，效果相同；脚本只是多做接入检查。
 
 ## 六个 agent 一览
 
