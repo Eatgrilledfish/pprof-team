@@ -1,0 +1,124 @@
+{
+  "team": "pprof-team",
+  "version": "1.1.0",
+  "language": "zh-CN",
+  "description": "Go 项目 pprof 性能分析多智能体团队：基于两期 profile 差分（go tool pprof -diff_base）定位 CPU 增长点与内存增长点，产出报告与优化建议，并由实施 agent 落地优化。适用于 multica 或任意暴露 net/http/pprof 的 Go 服务。",
+  "red_line": {
+    "rule": "禁止以牺牲内存换取 CPU 优化，也禁止以牺牲 CPU 换取内存优化",
+    "enforcement": "任何优化提案必须论证双轴影响；benchstat 比较 ns/op、B/op、allocs/op，任一轴统计显著回归（p<0.05）即否决并回退该变更",
+    "allowed_categories": [
+      "减少实际工作量（算法/复杂度）",
+      "消除重复计算",
+      "减少分配（同时降低 GC CPU 与堆增长）",
+      "修复泄漏",
+      "降低锁竞争",
+      "减少系统调用"
+    ]
+  },
+  "growth_point_definition": "增长点必须基于 baseline/current 两期 profile 差分（-diff_base），禁止用单点 top 当增长结论；两期流量差一个数量级时差分作废重采",
+  "requires": {
+    "target_service": "暴露 /debug/pprof/* 的 Go 服务（建议启用 runtime.SetBlockProfileRate 与 runtime.SetMutexProfileFraction）",
+    "toolchain": ["go", "curl", "bash"],
+    "optional": ["benchstat (golang.org/x/perf/cmd/benchstat)"]
+  },
+  "env": {
+    "PPROF_ADDR": { "default": "http://127.0.0.1:6060", "description": "被分析服务的 pprof 地址" },
+    "GO_PROJECT_DIR": { "default": ".", "description": "被分析项目源码路径（04/06 号 agent 读代码、行号解析依赖它，版本须与线上构建一致）" },
+    "PROFILE_SECONDS": { "default": "30", "description": "CPU profile 采样时长（秒）" },
+    "SESSION_DIR": { "default": "", "description": "分析会话目录；未设置时自动创建 pprof-reports/<时间戳>/ 并写入 .latest" },
+    "PPROF_SESSION_DIR": { "default": "", "description": "SESSION_DIR 的兼容别名（04/05/06 号 agent 使用）" },
+    "TARGET_AXIS": { "default": "cpu", "description": "bench_verify.sh 的目标优化轴：cpu|mem" }
+  },
+  "artifacts": {
+    "session_dir": "pprof-reports/<YYYYMMDD-HHMMSS>/",
+    "layout": {
+      "baseline/": "基线期 profile（cpu/heap/allocs/goroutine/block/mutex .pprof）",
+      "current/": "对比期 profile，命名与 baseline 一致",
+      "diff/": "差分产物（cpu-diff.txt、heap-inuse-diff.txt、heap-alloc-diff.txt、allocs-diff.txt、goroutine-compare.txt）",
+      "notes/": "各 analyst 笔记（collector/cpu-analysis/memory-analysis/code-correlation/verification .md）",
+      "report.md": "最终报告（05 产出，06 回填验证结果）"
+    },
+    "latest_pointer": "pprof-reports/.latest"
+  },
+  "scripts": {
+    "collect": { "path": "scripts/collect_profiles.sh", "usage": "collect_profiles.sh <baseline|current>", "description": "成对采集两期 profile 并校验完整性" },
+    "diff": { "path": "scripts/diff_profiles.sh", "usage": "diff_profiles.sh [SESSION_DIR]", "description": "生成两期差分产物到 diff/" },
+    "bench_verify": { "path": "scripts/bench_verify.sh", "usage": "bench_verify.sh -pkg <包路径> -bench <Benchmark正则> -base <before.txt> -out <结果目录>", "description": "benchstat 三轴双轴验收，任一轴显著回归以退出码 2 否决" },
+    "install": { "path": "install.sh", "usage": "install.sh <目标项目根目录>", "description": "一键导入团队到目标项目（如 multica），含 pprof 暴露检查与 .gitignore 处理" }
+  },
+  "agents": [
+    {
+      "id": "01-profiler-collector",
+      "name": "pprof-profiler-collector",
+      "file": "agents/01-profiler-collector.md",
+      "role": "数据采集员：两期 profile 成对采集与校验，只采集不分析",
+      "tools": ["Bash", "Read", "Write"],
+      "inputs": ["运行中的目标服务", "PPROF_ADDR", "scripts/collect_profiles.sh", "scripts/diff_profiles.sh"],
+      "outputs": ["baseline/", "current/", "diff/", "notes/collector.md"],
+      "depends_on": [],
+      "parallel_with": []
+    },
+    {
+      "id": "02-cpu-analyst",
+      "name": "pprof-cpu-analyst",
+      "file": "agents/02-cpu-analyst.md",
+      "role": "CPU 增长点分析：cpu/block/mutex 两期差分，区分业务增长与劣化",
+      "tools": ["Bash", "Read", "Grep", "Glob", "Write"],
+      "inputs": ["baseline/current 的 cpu/block/mutex profile", "diff/cpu-diff.txt", "notes/collector.md"],
+      "outputs": ["notes/cpu-analysis.md（含给 04 的待映射符号列表）"],
+      "depends_on": ["01-profiler-collector"],
+      "parallel_with": ["03-memory-analyst"]
+    },
+    {
+      "id": "03-memory-analyst",
+      "name": "pprof-memory-analyst",
+      "file": "agents/03-memory-analyst.md",
+      "role": "内存增长点分析：heap/allocs/goroutine 两期差分，区分真泄漏与高分配率",
+      "tools": ["Bash", "Read", "Grep", "Glob", "Write"],
+      "inputs": ["baseline/current 的 heap/allocs/goroutine profile", "diff/heap-*.txt", "diff/allocs-diff.txt", "notes/collector.md"],
+      "outputs": ["notes/memory-analysis.md（含给 04 的符号列表）"],
+      "depends_on": ["01-profiler-collector"],
+      "parallel_with": ["02-cpu-analyst"]
+    },
+    {
+      "id": "04-code-correlator",
+      "name": "pprof-code-correlator",
+      "file": "agents/04-code-correlator.md",
+      "role": "源码关联：热点符号映射 file:line，产出带双轴影响论证的优化假设；只读源码",
+      "tools": ["Bash", "Read", "Grep", "Glob", "Write"],
+      "inputs": ["notes/cpu-analysis.md", "notes/memory-analysis.md", "GO_PROJECT_DIR 源码"],
+      "outputs": ["notes/code-correlation.md（假设 ID 形如 H-04-x-y）"],
+      "depends_on": ["02-cpu-analyst", "03-memory-analyst"],
+      "parallel_with": []
+    },
+    {
+      "id": "05-report-architect",
+      "name": "pprof-report-architect",
+      "file": "agents/05-report-architect.md",
+      "role": "报告架构师：交叉核对三份笔记，评定 P0-P2 优先级，汇总 report.md；双轴红线最后守门员",
+      "tools": ["Bash", "Read", "Grep", "Glob", "Write", "Edit"],
+      "inputs": ["notes/cpu-analysis.md", "notes/memory-analysis.md", "notes/code-correlation.md", "templates/report-template.md", "diff/*.txt"],
+      "outputs": ["report.md（建议区 + 违规提案隔离区 + 验证计划）"],
+      "depends_on": ["04-code-correlator"],
+      "parallel_with": []
+    },
+    {
+      "id": "06-optimizer",
+      "name": "pprof-optimizer",
+      "file": "agents/06-optimizer.md",
+      "role": "优化实施：唯一有权改代码的 agent；逐条实施、benchstat 双轴验收、否决即回退",
+      "tools": ["Bash", "Read", "Grep", "Glob", "Write", "Edit"],
+      "inputs": ["report.md（已获批条目）", "notes/code-correlation.md", "GO_PROJECT_DIR 源码", "scripts/bench_verify.sh"],
+      "outputs": ["源码改动（每条建议独立 commit）", "notes/verification.md"],
+      "depends_on": ["05-report-architect"],
+      "parallel_with": []
+    }
+  ],
+  "workflow": [
+    { "step": 1, "agent": "01-profiler-collector", "action": "collect baseline → 施加负载 → collect current → diff" },
+    { "step": 2, "agents": ["02-cpu-analyst", "03-memory-analyst"], "action": "并行差分分析，产出各自 notes" },
+    { "step": 3, "agent": "04-code-correlator", "action": "符号映射源码 + 优化假设（双轴论证）" },
+    { "step": 4, "agent": "05-report-architect", "action": "汇总 report.md，红线守门" },
+    { "step": 5, "agent": "06-optimizer", "action": "按 P0→P2 逐条实施，bench_verify 双轴验收，回传 verification.md 给 05 闭环" }
+  ]
+}

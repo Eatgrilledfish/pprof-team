@@ -13,6 +13,7 @@
 ```
 pprof-team/
 ├── README.md                      # 本文件：团队总览与使用手册
+├── pprof-team.json                # 团队清单（机器可读）：成员/角色/输入输出/工作流/环境变量/红线规则，供 harness 发现与加载本团队
 ├── agents/                        # 六个 agent 的角色定义（prompt），按编号顺序消费
 │   ├── 01-profiler-collector.md   # 采集员：两期 profile 成对采集与校验
 │   ├── 02-cpu-analyst.md          # CPU 分析：cpu/block/mutex 差分

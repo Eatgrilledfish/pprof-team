@@ -31,7 +31,7 @@ DEST="$TARGET/pprof-team"
 
 # 1) 复制团队文件（排除 git 元数据与运行时产物）
 mkdir -p "$DEST"
-for item in README.md agents scripts templates; do
+for item in README.md pprof-team.json agents scripts templates; do
     if [[ -e "$SRC/$item" ]]; then
         rm -rf "${DEST:?}/$item"
         cp -R "$SRC/$item" "$DEST/$item"
